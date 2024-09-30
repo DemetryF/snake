@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-rand = "0.8.5"
 serde = { version = "1.0.210", features = ["derive"] }
+ecolor = { version = "0.28.0", features = ["serde"] }
+rand = "0.8.5"
 
 macros = { path = "../macros" }

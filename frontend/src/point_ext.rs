@@ -2,7 +2,7 @@ use egui::{Pos2, Rect, Vec2};
 
 use core::Point;
 
-const CELL_SIZE: f32 = 10.;
+pub const CELL_SIZE: f32 = 10.;
 
 pub trait PointExt {
     fn to_pos(self) -> Pos2;

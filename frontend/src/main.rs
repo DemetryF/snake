@@ -8,13 +8,13 @@ use std::thread;
 
 use eframe::NativeOptions;
 use egui::emath::TSTransform;
-use egui::{Color32, Frame, Key, Margin, Rect, Sense};
+use egui::{Color32, Frame, Key, Margin, Rect, Sense, Vec2};
 
 use core::{Direction, Point};
 use protocol::{JoinPacket, StatePacket};
 
 use painter::Painter;
-use point_ext::PointExt;
+use point_ext::{PointExt, CELL_SIZE};
 
 fn main() {
     let state = Arc::new(RwLock::new(StatePacket::default()));
@@ -78,9 +78,8 @@ fn main() {
                     transform,
                 };
 
-                const SNAKE_COLOR: Color32 = Color32::from_rgb(228, 228, 30);
-                const GRASS_COLOR: Color32 = Color32::from_rgb(30, 228, 40);
-                const FRUIT_COLOR: Color32 = Color32::from_rgb(228, 30, 30);
+                const GRASS_COLOR: Color32 = Color32::from_rgb(59, 216, 22);
+                const FRUIT_COLOR: Color32 = Color32::from_rgb(216, 53, 22);
 
                 let state = state.read().unwrap();
 
@@ -93,12 +92,17 @@ fn main() {
 
                 for snake in state.snakes.values() {
                     for point in snake.body() {
-                        painter.rect(point.rect(), SNAKE_COLOR);
+                        painter.rect(point.rect(), snake.color);
                     }
                 }
 
                 for &fruit in state.fruits.iter() {
-                    painter.rect(fruit.rect(), FRUIT_COLOR);
+                    let mut rect = fruit.rect();
+
+                    rect.min += Vec2::splat(CELL_SIZE) / 5.;
+                    rect.max -= Vec2::splat(CELL_SIZE) / 5.;
+
+                    painter.rect(rect, FRUIT_COLOR);
                 }
             });
     })

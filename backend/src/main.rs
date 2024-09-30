@@ -1,6 +1,9 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use random_color::color_dictionary::{ColorDictionary, ColorInformation};
+use random_color::options::Luminosity;
+use random_color::RandomColor;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::TcpListener;
@@ -21,7 +24,7 @@ async fn main() {
         let connections = Arc::clone(&connections);
 
         async move {
-            const FPS: f32 = 4.;
+            const FPS: f32 = 6.;
 
             let mut buffer = Vec::<u8>::new();
             let mut last_iter_dur = 1. / FPS;
@@ -76,6 +79,11 @@ async fn main() {
     let accept_task = tokio::spawn({
         let connections = Arc::clone(&connections);
 
+        let mut random_color = RandomColor {
+            luminosity: Some(Luminosity::Dark),
+            ..Default::default()
+        };
+
         async move {
             loop {
                 let (socket, _) = listenter.accept().await.unwrap();
@@ -90,7 +98,10 @@ async fn main() {
                     let head = Point::new(game_state.world.width / 2, game_state.world.height / 2);
                     let dir = Direction::Left;
 
-                    game_state.add_snake(Snake::from_dir_len(head, dir, 4), dir)
+                    game_state.add_snake(
+                        Snake::from_dir_len(head, dir, 4, random_color.to_color32()),
+                        dir,
+                    )
                 };
 
                 {

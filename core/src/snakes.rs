@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::iter;
 use std::ops::{Index, IndexMut};
 
+use ecolor::Color32;
 use macros::id;
 use serde::{Deserialize, Serialize};
 
@@ -75,10 +76,11 @@ pub struct SnakeID;
 pub struct Snake {
     pub head: Point,
     pub tail: Vec<Point>,
+    pub color: Color32,
 }
 
 impl Snake {
-    pub fn from_dir_len(head: Point, dir: Direction, len: usize) -> Self {
+    pub fn from_dir_len(head: Point, dir: Direction, len: usize, color: Color32) -> Self {
         let mut tail = Vec::with_capacity(len);
 
         for _ in 0..len {
@@ -87,7 +89,7 @@ impl Snake {
             tail.push(last + dir.opposite());
         }
 
-        Self { head, tail }
+        Self { head, tail, color }
     }
 
     pub fn grow(&mut self) {
