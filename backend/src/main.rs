@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -19,16 +20,16 @@ async fn main() {
     let game_state = GameState::new(World::new(50, 50, 10));
     let game_state = Arc::new(RwLock::new(game_state));
 
-    let connections = Arc::new(RwLock::new(HashMap::<SnakeID, Connection>::new()));
+    let connections = Connections::default();
 
     let update_task = tokio::spawn({
         let game_state = Arc::clone(&game_state);
-        let connections = Arc::clone(&connections);
+        let connections = connections.clone();
 
         async move {
             const FPS: f32 = 6.;
 
-            let mut buffer = Vec::<u8>::new();
+            let mut buffer = Vec::new();
             let mut last_iter_dur = 1. / FPS;
 
             loop {
@@ -45,32 +46,18 @@ async fn main() {
                 }
 
                 {
-                    {
-                        buffer.clear();
+                    buffer.clear();
 
-                        let game_state = game_state.read().await;
+                    let game_state = game_state.read().await;
 
-                        let packet = StatePacketRef {
-                            snakes: &game_state.world.snakes.data,
-                            fruits: &game_state.world.fruits.data,
-                        };
+                    let packet = StatePacketRef {
+                        snakes: &game_state.world.snakes.data,
+                        fruits: &game_state.world.fruits.data,
+                    };
 
-                        bincode::serialize_into(&mut buffer, &packet).unwrap();
-                    }
+                    bincode::serialize_into(&mut buffer, &packet).unwrap();
 
-                    let connections = Arc::clone(&connections);
-
-                    for connection in connections.write().await.values_mut() {
-                        connection
-                            .write_socket
-                            .write_u64(buffer.len() as u64)
-                            .await
-                            .unwrap();
-
-                        let Ok(_) = connection.write_socket.write_all(&buffer).await else {
-                            continue;
-                        };
-                    }
+                    connections.send_all(&buffer).await;
                 }
 
                 last_iter_dur = iter_start.elapsed().as_secs_f32();
@@ -81,7 +68,7 @@ async fn main() {
     let listenter = TcpListener::bind("192.168.0.11:1984").await.unwrap();
 
     let accept_task = tokio::spawn({
-        let connections = Arc::clone(&connections);
+        let connections = connections.clone();
 
         let mut random_color = RandomColor {
             luminosity: Some(Luminosity::Dark),
@@ -124,14 +111,9 @@ async fn main() {
                     write_socket.write(&buffer).await.unwrap();
                 }
 
-                let connections = Arc::clone(&connections);
+                let connections = connections.clone();
 
-                {
-                    connections
-                        .write()
-                        .await
-                        .insert(id, Connection { write_socket });
-                }
+                connections.add(id, write_socket).await;
 
                 tokio::spawn(async move {
                     let mut buffer = Vec::new();
@@ -141,8 +123,9 @@ async fn main() {
 
                         for _ in 0..4 {
                             let Ok(read_u8) = read_socket.read_u8().await else {
-                                connections.write().await.remove(&id);
+                                connections.remove(id).await;
                                 game_state.write().await.world.snakes.data.remove(&id);
+
                                 return;
                             };
 
@@ -163,6 +146,38 @@ async fn main() {
     let _ = tokio::join!(update_task, accept_task);
 }
 
+#[derive(Clone, Default)]
+pub struct Connections {
+    data: Arc<RwLock<HashMap<SnakeID, Connection>>>,
+}
+
+impl Connections {
+    pub async fn add(&self, id: SnakeID, write_socket: OwnedWriteHalf) {
+        self.data
+            .write()
+            .await
+            .insert(id, Connection { write_socket });
+    }
+
+    pub async fn remove(&self, id: SnakeID) {
+        self.data.write().await.remove(&id);
+    }
+
+    pub async fn send_all(&self, data: &[u8]) {
+        let mut connections = self.data.write().await;
+
+        for connection in connections.values_mut() {
+            let _ = connection.send(data).await;
+        }
+    }
+}
+
 pub struct Connection {
     pub write_socket: OwnedWriteHalf,
+}
+
+impl Connection {
+    pub async fn send(&mut self, data: &[u8]) -> io::Result<()> {
+        self.write_socket.write_all(data).await
+    }
 }
