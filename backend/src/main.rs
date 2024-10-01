@@ -1,15 +1,17 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use random_color::color_dictionary::{ColorDictionary, ColorInformation};
 use random_color::options::Luminosity;
 use random_color::RandomColor;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::TcpListener;
-use tokio::{sync::RwLock, time::sleep};
+use tokio::sync::RwLock;
+use tokio::time::sleep;
 
-use core::{Direction, GameState, Point, Snake, World};
+use core::{Direction, GameState, Point, Snake, SnakeID, World};
+
 use protocol::{JoinPacket, StatePacketRef};
 
 #[tokio::main]
@@ -17,7 +19,7 @@ async fn main() {
     let game_state = GameState::new(World::new(50, 50, 10));
     let game_state = Arc::new(RwLock::new(game_state));
 
-    let connections = Arc::new(RwLock::new(Vec::<Connection>::new()));
+    let connections = Arc::new(RwLock::new(HashMap::<SnakeID, Connection>::new()));
 
     let update_task = tokio::spawn({
         let game_state = Arc::clone(&game_state);
@@ -58,14 +60,16 @@ async fn main() {
 
                     let connections = Arc::clone(&connections);
 
-                    for connection in connections.write().await.iter_mut() {
+                    for connection in connections.write().await.values_mut() {
                         connection
                             .write_socket
                             .write_u64(buffer.len() as u64)
                             .await
                             .unwrap();
 
-                        connection.write_socket.write_all(&buffer).await.unwrap();
+                        let Ok(_) = connection.write_socket.write_all(&buffer).await else {
+                            continue;
+                        };
                     }
                 }
 
@@ -120,8 +124,13 @@ async fn main() {
                     write_socket.write(&buffer).await.unwrap();
                 }
 
+                let connections = Arc::clone(&connections);
+
                 {
-                    connections.write().await.push(Connection { write_socket });
+                    connections
+                        .write()
+                        .await
+                        .insert(id, Connection { write_socket });
                 }
 
                 tokio::spawn(async move {
@@ -131,12 +140,13 @@ async fn main() {
                         buffer.clear();
 
                         for _ in 0..4 {
-                            loop {
-                                if let Ok(byte) = read_socket.read_u8().await {
-                                    buffer.push(byte);
-                                    break;
-                                }
-                            }
+                            let Ok(read_u8) = read_socket.read_u8().await else {
+                                connections.write().await.remove(&id);
+                                game_state.write().await.world.snakes.data.remove(&id);
+                                return;
+                            };
+
+                            buffer.push(read_u8);
                         }
 
                         let direction = bincode::deserialize_from(buffer.as_slice()).unwrap();
